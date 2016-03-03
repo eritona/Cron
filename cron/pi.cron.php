@@ -27,7 +27,7 @@ in this Software without prior written authorization from EllisLab, Inc.
 
 $plugin_info = array(
 	'pi_name'        => 'ExpressionEngine Cron',
-	'pi_version'     => '1.1.2',
+	'pi_version'     => '1.2.0',
 	'pi_author'	     => 'Paul Burdick',
 	'pi_author_url'	 => 'http://www.expressionengine.com/',
 	'pi_description' => 'Allows the regular, scheduled calling of plugins and modules',
@@ -75,37 +75,44 @@ class Cron {
     {
         $this->EE =& get_instance();
 
-        $this->params = array('minute', 'hour', 'day', 'month', 'weekday', 'year');
-
-        $this->check = time();
-        list($this->now['minute'], $this->now['hour'], $this->now['day'], $this->now['month'], $this->now['weekday'], $this->now['year']) = explode(',', strftime("%M,%H,%d,%m,%w,%Y", $this->check));
-
-        $this->id			= md5($this->EE->TMPL->tagproper);
-        $this->cache_file	= APPPATH.'cache/'.$this->cache_name.'/'.$this->id;
-
-        if ($this->parse_cron() === TRUE)
+        if ($this->check_environment_correct() === TRUE)
         {
-			$this->EE->TMPL->log_item("Parse Cron job");
+            $this->params = array('minute', 'hour', 'day', 'month', 'weekday', 'year');
 
-        	$this->write_cache();
+            $this->check = time();
+            list($this->now['minute'], $this->now['hour'], $this->now['day'], $this->now['month'], $this->now['weekday'], $this->now['year']) = explode(',', strftime("%M,%H,%d,%m,%w,%Y", $this->check));
 
-        	if ($this->EE->TMPL->fetch_param('module') !== FALSE)
-        	{
-        		$this->return_data = $this->class_handler($this->EE->TMPL->fetch_param('module'), 'modules');
-        	}
-        	elseif($this->EE->TMPL->fetch_param('plugin') !== FALSE)
-        	{
-        		$this->return_data = $this->class_handler($this->EE->TMPL->fetch_param('plugin'), 'plugins');
-        	}
-        	else
-        	{
-        		$this->return_data = $this->EE->TMPL->tagdata;
-        	}
+            $this->id			= md5($this->EE->TMPL->tagproper);
+            $this->cache_file	= APPPATH.'cache/'.$this->cache_name.'/'.$this->id;
+
+            if ($this->parse_cron() === TRUE)
+            {
+    			$this->EE->TMPL->log_item("Parse Cron job");
+
+            	$this->write_cache();
+
+            	if ($this->EE->TMPL->fetch_param('module') !== FALSE)
+            	{
+            		$this->return_data = $this->class_handler($this->EE->TMPL->fetch_param('module'), 'modules');
+            	}
+            	elseif($this->EE->TMPL->fetch_param('plugin') !== FALSE)
+            	{
+            		$this->return_data = $this->class_handler($this->EE->TMPL->fetch_param('plugin'), 'plugins');
+            	}
+            	else
+            	{
+            		$this->return_data = $this->EE->TMPL->tagdata;
+            	}
+            }
+    		else
+    		{
+    			$this->EE->TMPL->log_item("Cron cache not yet expired");
+    		}
         }
-		else
-		{
-			$this->EE->TMPL->log_item("Cron cache not yet expired");
-		}
+        else
+        {
+            $this->EE->TMPL->log_item("Cron job does not have correct environment");
+        }
 	}
 
 	// --------------------------------------------------------------------
@@ -710,6 +717,40 @@ class Cron {
 
 	}
 
+    // --------------------------------------------------------------------
+
+    /**
+     * Validates the running environment for the cron job
+     *
+     * @access   public
+     * @return   boolean
+     */
+    function check_environment_correct()
+    {
+        // Check if there is an environment constraint parameter for the cron job
+        if ($this->EE->TMPL->fetch_param('environment') !== FALSE)
+        {
+            $correct_environment = FALSE;
+
+            $environment_array = explode('|', strtolower($this->EE->TMPL->fetch_param('environment')));
+
+            foreach($environment_array as $environment)
+            {
+                if ($environment == strtolower($_SERVER['SERVER_NAME']))
+                {
+                    $correct_environment = TRUE;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            $correct_environment = TRUE;
+        }
+
+        return $correct_environment;
+    }
+
 	// --------------------------------------------------------------------
 
 	/**
@@ -754,16 +795,26 @@ class Cron {
 		 - The asterisk ('*') operator specifies all possible values for a field. For example, an asterisk in the hour time field would be equivalent to 'every hour'.
 
 
-		============================
-		 PARAMETERS - Call Plugin or Module
-		============================
+        ============================
+         PARAMETERS - Call Plugin or Module
+        ============================
 
-		You can specify which function in a module or plugin to parse using one of these two parameters.  You can only use only one of
-		the parameters per tag.  The syntax is similar to what is used for a regular ExpressionEngine tag.  The module/plugin name, a colon,
-		and then the name of the function being called in that module/plugin's class.
+        You can specify which function in a module or plugin to parse using one of these two parameters.  You can only use only one of
+        the parameters per tag.  The syntax is similar to what is used for a regular ExpressionEngine tag.  The module/plugin name, a colon,
+        and then the name of the function being called in that module/plugin's class.
 
-		plugin="send_email:mailinglist" - Calls the mailinglist function in the Send Email plugin
-		module="moblog:check" - Calls the check function in the Moblog module
+        plugin="send_email:mailinglist" - Calls the mailinglist function in the Send Email plugin
+        module="moblog:check" - Calls the check function in the Moblog module
+
+
+        ============================
+         PARAMETERS - Environment
+        ============================
+
+        You may specify a string containing the environment the cron plugin should run in. Multiple environments should be separated
+        by the pipe ('|') character.
+
+        environment="www.yoursite.com" - Restricts the running of the plugin to the www.yoursite.com environment
 
 
 		============================
@@ -785,9 +836,9 @@ class Cron {
 
 		==========
 
-		Calls the plugin Send Email and sends out your daily mailinglist.
+		Calls the plugin Send Email and sends out your daily mailinglist when run from the www.yoursite.com and stg.yoursite.com environments.
 
-		{exp:cron minute="*" hour="*" day="1,15,31" month="*" plugin="send_email:mailinglist"}{/exp:cron}
+		{exp:cron minute="*" hour="*" day="1,15,31" month="*" plugin="send_email:mailinglist" environment="www.yoursite.com|stg.yoursite.com"}{/exp:cron}
 
 		=========
 
